@@ -1,288 +1,286 @@
 import streamlit as st
 import requests
-import pandas as pd
 import json
-from datetime import datetime
+import jwt
+from datetime import datetime, timedelta
 import time
 
 # Page configuration
 st.set_page_config(
-    page_title="WooWonder Data Extractor",
-    page_icon="📊",
-    layout="wide"
+    page_title="WoWonder JWT Token Generator",
+    page_icon="🔐",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# Title and description
-st.title("📊 WooWonder Data Extractor")
-st.markdown("Export user data and articles from WooWonder to CSV files")
+# Custom CSS for better styling
+st.markdown("""
+<style>
+    .main-header {
+        text-align: center;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        font-size: 3rem;
+        font-weight: bold;
+        margin-bottom: 2rem;
+    }
+    .success-box {
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+        padding: 1rem;
+        border-radius: 0.375rem;
+        margin: 1rem 0;
+    }
+    .error-box {
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+        padding: 1rem;
+        border-radius: 0.375rem;
+        margin: 1rem 0;
+    }
+    .info-box {
+        background-color: #d1ecf1;
+        border: 1px solid #bee5eb;
+        color: #0c5460;
+        padding: 1rem;
+        border-radius: 0.375rem;
+        margin: 1rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# Sidebar for configuration
-st.sidebar.header("🔧 Configuration")
+# Main header
+st.markdown('<h1 class="main-header">🔐 WoWonder JWT Token Generator</h1>', unsafe_allow_html=True)
 
-# API Configuration
-with st.sidebar.expander("API Settings", expanded=True):
-    site_url = st.text_input(
-        "Site URL", 
-        value="https://zzatem.com",
-        help="Your WooWonder site URL"
-    )
+# Initialize session state
+if 'access_token' not in st.session_state:
+    st.session_state.access_token = None
+if 'jwt_token' not in st.session_state:
+    st.session_state.jwt_token = None
+if 'user_data' not in st.session_state:
+    st.session_state.user_data = None
+
+# Sidebar configuration
+with st.sidebar:
+    st.header("⚙️ Configuration")
     
-    access_token = st.text_input(
-        "Access Token", 
-        type="password",
-        help="User's access token for authorization"
-    )
+    # API Configuration
+    st.subheader("API Settings")
+    api_url = st.text_input("API Base URL", value="https://zzatem.com", help="Base URL for your WoWonder site")
     
-    server_key = st.text_input(
-        "Server Key", 
-        value="ad18880474e60cd46a62b81194a6c296",
-        type="password",
-        help="Server key from Admin Panel"
-    )
+    # Credentials
+    st.subheader("Authentication")
+    username = st.text_input("Username", value="Cathlene", help="Your WoWonder username")
+    password = st.text_input("Password", value="ZZatem1!", type="password", help="Your WoWonder password")
+    server_key = st.text_input("Server Key", value="ad18880474e60cd46a62b81194a6c296", type="password", help="Your WoWonder server key")
+    
+    # JWT Configuration
+    st.subheader("JWT Settings")
+    jwt_secret = st.text_input("JWT Secret Key", value="your-secret-key", type="password", help="Secret key for JWT signing")
+    jwt_expiry_hours = st.number_input("Token Expiry (hours)", min_value=1, max_value=168, value=24, help="JWT token expiry time in hours")
 
-# Helper functions
-def make_api_request(endpoint, post_data=None):
-    """Make API request to WooWonder"""
-    try:
-        url = f"{site_url.rstrip('/')}/api/{endpoint}?access_token={access_token}"
-        
-        if post_data:
-            post_data['server_key'] = server_key
-            response = requests.post(url, data=post_data)
+# Main content area
+col1, col2 = st.columns([1, 1])
+
+with col1:
+    st.header("🔑 Authentication")
+    
+    if st.button("🚀 Authenticate & Generate Token", type="primary", use_container_width=True):
+        if not all([api_url, username, password, server_key]):
+            st.error("❌ Please fill in all required fields")
         else:
-            response = requests.get(url)
-        
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        st.error(f"API request failed: {str(e)}")
-        return None
-    except json.JSONDecodeError:
-        st.error("Invalid JSON response from API")
-        return None
-
-def export_to_csv(data, filename):
-    """Export data to CSV and provide download link"""
-    if data:
-        df = pd.DataFrame(data)
-        csv = df.to_csv(index=False)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename_with_timestamp = f"{filename}_{timestamp}.csv"
-        
-        st.download_button(
-            label=f"📥 Download {filename_with_timestamp}",
-            data=csv,
-            file_name=filename_with_timestamp,
-            mime="text/csv"
-        )
-        
-        return df
-    return None
-
-# Main content
-if not all([site_url, access_token, server_key]):
-    st.warning("⚠️ Please fill in all API configuration fields in the sidebar to proceed.")
-else:
-    # Create tabs for different data types
-    tab1, tab2 = st.tabs(["👥 Users Data", "📰 Articles Data"])
-    
-    with tab1:
-        st.header("👥 Users Data Extraction")
-        
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            user_ids_input = st.text_area(
-                "User IDs (comma-separated)",
-                placeholder="1,2,3,4,5",
-                help="Enter user IDs separated by commas"
-            )
-        
-        with col2:
-            st.markdown("### Options")
-            fetch_users_btn = st.button("🔄 Fetch Users Data", type="primary")
-        
-        if fetch_users_btn and user_ids_input:
-            with st.spinner("Fetching users data..."):
-                post_data = {
-                    'user_ids': user_ids_input.strip()
-                }
-                
-                result = make_api_request('get-many-users-data', post_data)
-                
-                if result and result.get('api_status') == 200:
-                    users_data = result.get('users', [])
+            with st.spinner("🔄 Authenticating..."):
+                try:
+                    # Authentication request
+                    auth_url = f"{api_url.rstrip('/')}/api/auth"
                     
-                    if users_data:
-                        st.success(f"✅ Successfully fetched {len(users_data)} users")
-                        
-                        # Display preview
-                        st.subheader("📋 Data Preview")
-                        df = pd.DataFrame(users_data)
-                        st.dataframe(df, use_container_width=True)
-                        
-                        # Export option
-                        st.subheader("💾 Export Data")
-                        export_to_csv(users_data, "woowonder_users")
-                        
-                        # Show summary statistics
-                        st.subheader("📊 Summary")
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Total Users", len(users_data))
-                        with col2:
-                            st.metric("Columns", len(df.columns))
-                        with col3:
-                            st.metric("Data Size", f"{df.memory_usage().sum()} bytes")
-                    else:
-                        st.warning("No users data found")
-                else:
-                    st.error("Failed to fetch users data. Please check your API configuration.")
-    
-    with tab2:
-        st.header("📰 Articles Data Extraction")
-        
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            st.subheader("Filter Options")
-            
-            limit = st.number_input(
-                "Limit (number of articles)",
-                min_value=1,
-                max_value=1000,
-                value=25,
-                help="Maximum number of articles to fetch"
-            )
-            
-            offset = st.number_input(
-                "Offset",
-                min_value=0,
-                value=0,
-                help="Get articles after this offset ID"
-            )
-            
-            user_id = st.number_input(
-                "User ID (optional)",
-                min_value=0,
-                value=0,
-                help="Filter articles by specific user ID (0 for all users)"
-            )
-            
-            category_id = st.number_input(
-                "Category ID (optional)",
-                min_value=0,
-                value=0,
-                help="Filter articles by category ID (0 for all categories)"
-            )
-            
-            article_id = st.number_input(
-                "Specific Article ID (optional)",
-                min_value=0,
-                value=0,
-                help="Get a specific article by ID (0 to ignore)"
-            )
-        
-        with col2:
-            st.markdown("### Actions")
-            fetch_articles_btn = st.button("🔄 Fetch Articles", type="primary")
-            
-            st.markdown("### Quick Actions")
-            if st.button("📊 Get Latest 100 Articles"):
-                limit = 100
-                fetch_articles_btn = True
-        
-        if fetch_articles_btn:
-            with st.spinner("Fetching articles data..."):
-                post_data = {
-                    'limit': limit,
-                    'offset': offset
-                }
-                
-                if user_id > 0:
-                    post_data['user_id'] = user_id
-                if category_id > 0:
-                    post_data['category'] = category_id
-                if article_id > 0:
-                    post_data['article_id'] = article_id
-                
-                result = make_api_request('get-articles', post_data)
-                
-                if result and result.get('api_status') == 200:
-                    articles_data = result.get('articles', [])
+                    headers = {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    }
                     
-                    if articles_data:
-                        st.success(f"✅ Successfully fetched {len(articles_data)} articles")
+                    data = {
+                        'username': username,
+                        'password': password,
+                        'server_key': server_key
+                    }
+                    
+                    response = requests.post(auth_url, headers=headers, data=data, timeout=30)
+                    
+                    if response.status_code == 200:
+                        auth_data = response.json()
                         
-                        # Display preview
-                        st.subheader("📋 Data Preview")
-                        df = pd.DataFrame(articles_data)
-                        st.dataframe(df, use_container_width=True)
-                        
-                        # Export option
-                        st.subheader("💾 Export Data")
-                        export_to_csv(articles_data, "woowonder_articles")
-                        
-                        # Show summary statistics
-                        st.subheader("📊 Summary")
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric("Total Articles", len(articles_data))
-                        with col2:
-                            st.metric("Columns", len(df.columns))
-                        with col3:
-                            st.metric("Data Size", f"{df.memory_usage().sum()} bytes")
-                        with col4:
-                            if 'category' in df.columns:
-                                st.metric("Unique Categories", df['category'].nunique())
+                        if auth_data.get('api_status') == 200:
+                            st.session_state.access_token = auth_data.get('access_token')
+                            st.session_state.user_data = auth_data.get('user_data', {})
+                            
+                            # Generate JWT Token
+                            payload = {
+                                'user_id': st.session_state.user_data.get('user_id', ''),
+                                'username': username,
+                                'access_token': st.session_state.access_token,
+                                'iat': datetime.utcnow(),
+                                'exp': datetime.utcnow() + timedelta(hours=jwt_expiry_hours),
+                                'iss': api_url,
+                                'aud': 'woowonder-app'
+                            }
+                            
+                            st.session_state.jwt_token = jwt.encode(payload, jwt_secret, algorithm='HS256')
+                            
+                            st.success("✅ Authentication successful! JWT token generated.")
+                        else:
+                            st.error(f"❌ Authentication failed: {auth_data.get('message', 'Unknown error')}")
                     else:
-                        st.warning("No articles data found")
-                else:
-                    st.error("Failed to fetch articles data. Please check your API configuration.")
+                        st.error(f"❌ HTTP Error {response.status_code}: {response.text}")
+                        
+                except requests.exceptions.RequestException as e:
+                    st.error(f"❌ Network error: {str(e)}")
+                except Exception as e:
+                    st.error(f"❌ Unexpected error: {str(e)}")
+
+with col2:
+    st.header("📊 Token Information")
+    
+    if st.session_state.access_token and st.session_state.jwt_token:
+        # Display success message
+        st.markdown('<div class="success-box">🎉 <strong>Token Generated Successfully!</strong></div>', unsafe_allow_html=True)
+        
+        # Access Token
+        st.subheader("🔓 Access Token")
+        st.code(st.session_state.access_token, language="text")
+        
+        # JWT Token
+        st.subheader("🎫 JWT Token")
+        st.code(st.session_state.jwt_token, language="text")
+        
+        # Copy buttons
+        col_copy1, col_copy2 = st.columns(2)
+        with col_copy1:
+            if st.button("📋 Copy Access Token", use_container_width=True):
+                st.write("Access token copied to display above!")
+        
+        with col_copy2:
+            if st.button("📋 Copy JWT Token", use_container_width=True):
+                st.write("JWT token copied to display above!")
+        
+        # Token Details
+        st.subheader("📋 Token Details")
+        try:
+            decoded_jwt = jwt.decode(st.session_state.jwt_token, jwt_secret, algorithms=['HS256'])
+            
+            token_info = {
+                "User ID": decoded_jwt.get('user_id', 'N/A'),
+                "Username": decoded_jwt.get('username', 'N/A'),
+                "Issued At": datetime.fromtimestamp(decoded_jwt.get('iat', 0)).strftime('%Y-%m-%d %H:%M:%S'),
+                "Expires At": datetime.fromtimestamp(decoded_jwt.get('exp', 0)).strftime('%Y-%m-%d %H:%M:%S'),
+                "Issuer": decoded_jwt.get('iss', 'N/A'),
+                "Audience": decoded_jwt.get('aud', 'N/A')
+            }
+            
+            for key, value in token_info.items():
+                st.write(f"**{key}:** {value}")
+                
+        except jwt.InvalidTokenError:
+            st.error("❌ Invalid JWT token")
+    
+    else:
+        st.markdown('<div class="info-box">ℹ️ <strong>No tokens generated yet.</strong><br>Click "Authenticate & Generate Token" to get started.</div>', unsafe_allow_html=True)
+
+# User Information Section
+if st.session_state.user_data:
+    st.header("👤 User Information")
+    
+    col_user1, col_user2 = st.columns(2)
+    
+    with col_user1:
+        st.write(f"**User ID:** {st.session_state.user_data.get('user_id', 'N/A')}")
+        st.write(f"**Username:** {st.session_state.user_data.get('username', 'N/A')}")
+        st.write(f"**Email:** {st.session_state.user_data.get('email', 'N/A')}")
+    
+    with col_user2:
+        st.write(f"**First Name:** {st.session_state.user_data.get('first_name', 'N/A')}")
+        st.write(f"**Last Name:** {st.session_state.user_data.get('last_name', 'N/A')}")
+        st.write(f"**Status:** {st.session_state.user_data.get('status', 'N/A')}")
+
+# Token Validation Section
+st.header("🔍 Token Validation")
+
+col_validate1, col_validate2 = st.columns(2)
+
+with col_validate1:
+    st.subheader("Validate JWT Token")
+    token_to_validate = st.text_area("Enter JWT Token to Validate", height=100)
+    
+    if st.button("🔍 Validate Token", use_container_width=True):
+        if token_to_validate:
+            try:
+                decoded = jwt.decode(token_to_validate, jwt_secret, algorithms=['HS256'])
+                st.success("✅ Token is valid!")
+                st.json(decoded)
+            except jwt.ExpiredSignatureError:
+                st.error("❌ Token has expired")
+            except jwt.InvalidTokenError:
+                st.error("❌ Invalid token")
+        else:
+            st.warning("⚠️ Please enter a token to validate")
+
+with col_validate2:
+    st.subheader("Token Status")
+    if st.session_state.jwt_token:
+        try:
+            decoded = jwt.decode(st.session_state.jwt_token, jwt_secret, algorithms=['HS256'])
+            exp_time = datetime.fromtimestamp(decoded['exp'])
+            current_time = datetime.utcnow()
+            
+            if current_time < exp_time:
+                time_left = exp_time - current_time
+                st.success(f"✅ Token is valid for {time_left}")
+            else:
+                st.error("❌ Token has expired")
+                
+        except jwt.InvalidTokenError:
+            st.error("❌ Invalid token")
+    else:
+        st.info("ℹ️ No active token")
 
 # Footer
 st.markdown("---")
-st.markdown(
-    """
-    <div style='text-align: center; color: #666;'>
-        <p>WooWonder Data Extractor | Built with Streamlit</p>
-        <p><strong>Note:</strong> This tool is for authorized use only. Ensure you have proper permissions to access the API.</p>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+st.markdown("""
+<div style="text-align: center; color: #666; padding: 2rem;">
+    <p>🔐 <strong>WoWonder JWT Token Generator</strong></p>
+    <p>Securely generate and manage JWT tokens for your WoWonder API integration</p>
+</div>
+""", unsafe_allow_html=True)
 
-# Instructions in sidebar
-with st.sidebar.expander("📖 Instructions", expanded=False):
+# Instructions
+with st.expander("📖 Instructions"):
     st.markdown("""
-    **How to use:**
+    ### How to use this JWT Token Generator:
     
-    1. **Configure API Settings:**
-       - Enter your WooWonder site URL
-       - Provide a valid access token
-       - Enter your server key
+    1. **Configure API Settings**: Enter your WoWonder site URL and credentials
+    2. **Set JWT Parameters**: Configure your JWT secret key and expiry time
+    3. **Generate Token**: Click "Authenticate & Generate Token" to create your JWT
+    4. **Copy Tokens**: Use the copy buttons to get your access token and JWT
+    5. **Validate Tokens**: Use the validation section to check token validity
     
-    2. **Users Data:**
-       - Enter user IDs separated by commas
-       - Click "Fetch Users Data"
-       - Preview and download CSV
+    ### Security Notes:
+    - Keep your server key and JWT secret secure
+    - Use HTTPS in production environments
+    - Regularly rotate your JWT secret keys
+    - Monitor token usage and expiry times
     
-    3. **Articles Data:**
-       - Set your filter options
-       - Click "Fetch Articles"
-       - Preview and download CSV
-    
-    **Tips:**
-    - Use smaller limits for initial testing
-    - Check your API rate limits
-    - Verify your access token is valid
+    ### API Endpoints:
+    - Authentication: `{your-site}/api/auth`
+    - User Data: `{your-site}/api/get-user-data?access_token={token}`
     """)
 
-# Status indicators
-if st.sidebar.button("🔍 Test API Connection"):
-    with st.spinner("Testing API connection..."):
-        test_result = make_api_request('get-articles', {'limit': 1})
-        if test_result and test_result.get('api_status') == 200:
-            st.sidebar.success("✅ API connection successful!")
-        else:
-            st.sidebar.error("❌ API connection failed. Check your settings.")
+# Clear session button
+if st.button("🗑️ Clear All Tokens", type="secondary"):
+    for key in ['access_token', 'jwt_token', 'user_data']:
+        if key in st.session_state:
+            del st.session_state[key]
+    st.success("✅ All tokens cleared!")
+    st.experimental_rerun()
